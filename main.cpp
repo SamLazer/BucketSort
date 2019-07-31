@@ -1,8 +1,8 @@
-//Copyright 2019, Bradley Peterson, Weber State University, all rights reserved. (7/2019)
+//Copyright 2018, Bradley Peterson, Weber State University, all rights reserved.
 
 #include <cstdio>
 #include <random>
-#include <thread>
+#include <thread> //C++11 support!   Visual studio 2012+ users can use this if they want.
 #include <mutex>
 #include <iostream>
 #include <vector>
@@ -29,9 +29,6 @@ void pressAnyKeyToContinue();
 class ManyBuckets;
 
 //***GLOBAL VARIABLES***
-bool useMultiThreading{ true }; //TODO: set this to true when doing the multithreaded part of the assignment
-// and leave it as false for the singlethreaded assignment
-
 unique_ptr<unsigned long[]> list;
 unique_ptr<ManyBuckets> globalBuckets;
 
@@ -39,21 +36,20 @@ unsigned int listSize{ 0 };
 unsigned int numBuckets{ 0 };
 unsigned int currentWorkUnit{ 0 };
 const unsigned long ULONGMAX = 4294967295;
-// TODO for multithreading assignment: Create a mutex object
-mutex theMutex;
+// TODO: Create a mutex object
+
+mutex myMutex;
+unsigned int sharedCounter = 0;
+
 
 class ManyBuckets {
 public:
     ManyBuckets(const unsigned int numBuckets);
     ~ManyBuckets() {}
     void addItem(unsigned long item);
-    //number of buckets
     unsigned int getNumBuckets() const;
-    //number of items in bucket
     unsigned int getNumItemsInABucket(const unsigned int bucket) const;
-    //gets specific buckets
     vector<unsigned long>& getBucket(const unsigned int bucket);
-    //prints all buckets
     void printAllBuckets() const;
     
 private:
@@ -98,48 +94,53 @@ vector<unsigned long>& ManyBuckets::getBucket(const unsigned int bucket) {
 }
 
 void ManyBuckets::addItem(unsigned long item) {
-    // TODO: Put the item in the appropraite bucket.
-    if(numBuckets == 1){
-        unsigned long numBuk = item/(ULONGMAX/numBuckets);
-        arr[numBuk].push_back(item);
-    }
-    else{
-        unsigned long numBuk = item/((ULONGMAX/numBuckets)+1);
-        arr[numBuk].push_back(item);
-    }
+    int bucketIndex;
     
+    if (numBuckets == 1) {
+        bucketIndex = 0;
+    }
+    else {
+        unsigned long range = (ULONGMAX / numBuckets);
+        range += 1;
+        bucketIndex = item / range;
+    }
+    arr[bucketIndex].push_back(item);
 }
 
-// TODO:  Loop over every item and call addItem
 void placeIntoBuckets() {
-    //loop through and add to buckets
-    //loop to size of array
-    //call globlaBuckets and additem(i)
-    for(int i = 0; i < listSize; i++){
-        globalBuckets->addItem(i);
+    for (unsigned int i = 0; i < listSize; i++) {
+        globalBuckets->addItem(list[i]);
     }
+    
 }
 
 
 // TODO: Modify so it has a parameter indicating what bucket to sort on
 // then have the code sort on that particular bucket only.
-void sortEachBucket(unsigned int numBuckets){
+void sortEachBucket(int bucketNum) {
     
-    int localCount = 0;
+    /*for (int i = 0; i < numBuckets; i++) {
+     vector<unsigned long> &myBucket = globalBuckets->getBucket(i);
+     int endIndex = globalBuckets->getNumItemsInABucket(i);
+     recQuickSort(myBucket, 0, endIndex);
+     }*/
     
-    while(true){
-        theMutex.lock();
-        localCount = currentWorkUnit;
+    int localWorkUnit{ -1 };
+    
+    do {
+        myMutex.lock();
+        localWorkUnit = currentWorkUnit;
         currentWorkUnit++;
-        theMutex.unlock();
-        
-        if(localCount < numBuckets){
-            recQuickSort(globalBuckets->getBucket(localCount ), 0, globalBuckets->getBucket(localCount ).size());
+        myMutex.unlock();
+        if (localWorkUnit < numBuckets) {
+            vector<unsigned long> &myBucket = globalBuckets->getBucket(localWorkUnit);
+            int endIndex = globalBuckets->getNumItemsInABucket(localWorkUnit);
+            recQuickSort(myBucket, 0, endIndex);
         }
-        else{
+        else {
             break;
         }
-    }
+    } while (true);
 }
 
 
@@ -148,21 +149,19 @@ void sortEachBucket(unsigned int numBuckets){
 //Get the individual bucket out of the globalBuckets
 //Copy all items from that individual bucket into the list array.
 void combineBuckets() {
-    
-    
-    unsigned long j = 0;
-    unsigned long k = 0;
-    
-    for(int i = 0; i < numBuckets; i++){
-        for( ; j < globalBuckets->getBucket(i).size(); j++, k++){
-            list[k] = globalBuckets->getBucket(i)[j];
+    int listIndex = 0;
+    for (int i = 0; i < numBuckets; i++) {
+        vector<unsigned long> &myBucket = globalBuckets->getBucket(i);
+        int bucketSize = globalBuckets->getNumItemsInABucket(i);
+        for (int j = 0; j < bucketSize; j++) {
+            list[listIndex++] = myBucket[j];
         }
     }
 }
 
 
 
-void bucketSort(bool displayOutput, bool multiThreadingMode) {
+void bucketSort(bool displayOutput, bool useMultiThreading) {
     
     //For the upcoming homeowork assignment, I think it will help you the most to split your work into these three functions.
     placeIntoBuckets();
@@ -175,7 +174,7 @@ void bucketSort(bool displayOutput, bool multiThreadingMode) {
     unsigned int numThreadsToUse{ 0 };
     currentWorkUnit = 0; //Reset the currentWorkUnit variable.
     
-    if (multiThreadingMode) {
+    if (useMultiThreading) {
         //Find out how many threads are supported
         unsigned int threadsSupported = std::thread::hardware_concurrency();
         if (threadsSupported == 1 && numBuckets > 1) {
@@ -200,18 +199,14 @@ void bucketSort(bool displayOutput, bool multiThreadingMode) {
     // you should use.
     // Also, join the threads.
     thread* threads = new thread[numThreadsToUse];
-    
-    for(int i = 0; i < numBuckets; i++){
+    for (int i = 0; i < numThreadsToUse; i++) {
         threads[i] = thread(sortEachBucket, currentWorkUnit);
     }
-    
-    for(int i = 0; i < numBuckets; i++){
+    for (int i = 0; i < numThreadsToUse; i++) {
         threads[i].join();
     }
-    
     delete[] threads;
     
-    //sortEachBucket(numBuckets);
     
     combineBuckets();
     
@@ -334,23 +329,20 @@ int main() {
     //Set the listSize, numBuckets, and numThreads global variables.
     listSize = 100;
     
-    if (useMultiThreading) {
-        unsigned int threadsSupported = std::thread::hardware_concurrency();
-        if (threadsSupported == 1) {
-            printf("You are on a machine that only supports 1 thread!\nThat is too bad, you won't see anything exciting in this assignment regarding better timings.\nSimulating 2 threads instead");
-        }
-        else {
-            printf("Your machine supports up to %d threads\n", threadsSupported);
-        }
+    unsigned int threadsSupported = std::thread::hardware_concurrency();
+    if (threadsSupported == 1) {
+        printf("You are on a machine that only supports 1 thread!\nThat is too bad, you won't see anything exciting in this assignment regarding better timings.\nSimulating 2 threads instead");
+    }
+    else {
+        printf("Your machine supports up to %d threads\n", threadsSupported);
     }
     
     numBuckets = 2;
     createList();
     globalBuckets = std::make_unique<ManyBuckets>(numBuckets);
     printf("\nStarting bucket sort for listSize = %d, numBuckets = %d\n", listSize, numBuckets);
-    printf("Displaying the unsorted list array:\n");
-    
-    printList(); //useful for debugging small amounts of numbers.
+    // printf("Displaying the unsorted list array:\n");
+    // printList(); //useful for debugging small amounts of numbers.
     pressAnyKeyToContinue();
     bucketSort(true, true);
     verifySort(list, listSize, diff, "2 buckets");
@@ -379,15 +371,11 @@ int main() {
     diff = end - start;
     baselineTime = diff.count();
     verifySort(list, listSize, diff, "4000000 items in 1 bucket with 1 thread - BASELINE");
+    bool useMultiThreading{ false };
     
-    bool multiThreadingMode{ false };
-    int loopTo = 0;
-    if (useMultiThreading) {
-        loopTo = 1;
-    }
-    for (int i = 0; i <= loopTo; i++) {
+    for (int i = 0; i <= 1; i++) {
         
-        if (multiThreadingMode) {
+        if (useMultiThreading) {
             printf("Starting multithreading tests\n");
             pressAnyKeyToContinue();
         }
@@ -400,14 +388,14 @@ int main() {
             createList();
             globalBuckets = std::make_unique<ManyBuckets>(numBuckets);
             start = std::chrono::high_resolution_clock::now();
-            bucketSort(false, multiThreadingMode);
+            bucketSort(false, useMultiThreading);
             end = std::chrono::high_resolution_clock::now();
             diff = end - start;
-            if (multiThreadingMode && (diff.count() < bestMultiThreadedTime)) {
+            if (useMultiThreading && (diff.count() < bestMultiThreadedTime)) {
                 bestMultiThreadedTime = diff.count();
                 bestMultiThreadedBuckets = numBuckets;
             }
-            else if (!multiThreadingMode && (diff.count() < bestSingleThreadedTime)) {
+            else if (!useMultiThreading && (diff.count() < bestSingleThreadedTime)) {
                 bestSingleThreadedTime = diff.count();
                 bestSingleThreadedBuckets = numBuckets;
             }
@@ -416,15 +404,13 @@ int main() {
             verifySort(list, listSize, diff, ss.str());
         }
         
-        multiThreadingMode = !multiThreadingMode; //Flip it from false to true.
+        useMultiThreading = !useMultiThreading; //Flip it from false to true.
     }
     printf("\n-----------------------------------------------------------\n");
     printf("              FINAL RESULTS                      \n");
     printf("The baseline (quicksort on 1 thread/1 bucket):  completed in %g ms\n", baselineTime);
     printf("The best singlethreaded result:     %d buckets completed in %g ms\n", bestSingleThreadedBuckets, bestSingleThreadedTime);
-    if (useMultiThreading) {
-        printf("The best multithreaded result:      %d buckets completed in %g ms\n", bestMultiThreadedBuckets, bestMultiThreadedTime);
-    }
+    printf("The best multithreaded result:      %d buckets completed in %g ms\n", bestMultiThreadedBuckets, bestMultiThreadedTime);
     printf("\n-----------------------------------------------------------\n");
     
     pressAnyKeyToContinue();
