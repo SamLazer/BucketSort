@@ -116,7 +116,7 @@ void placeIntoBuckets() {
     //loop to size of array
     //call globlaBuckets and additem(i)
     for(int i = 0; i < listSize; i++){
-        globalBuckets->addItem(list[i]);
+        globalBuckets->addItem(i);
     }
 }
 
@@ -125,22 +125,21 @@ void placeIntoBuckets() {
 // then have the code sort on that particular bucket only.
 void sortEachBucket(unsigned int numBuckets){
     
-    int localWorkUnit = 0;
+    int localCount = 0;
+    
     while(true){
-       
-            theMutex.lock();
-            localWorkUnit = currentWorkUnit;
-            currentWorkUnit++;
-            theMutex.unlock();
-         if(localWorkUnit < numBuckets){
-            recQuickSort(globalBuckets->getBucket(localWorkUnit), 0,globalBuckets->getNumItemsInABucket(localWorkUnit));
+        theMutex.lock();
+        localCount = currentWorkUnit;
+        currentWorkUnit++;
+        theMutex.unlock();
+        
+        if(localCount < numBuckets){
+            recQuickSort(globalBuckets->getBucket(localCount ), 0, globalBuckets->getBucket(localCount ).size());
         }
         else{
             break;
         }
     }
-    
-    
 }
 
 
@@ -151,11 +150,11 @@ void sortEachBucket(unsigned int numBuckets){
 void combineBuckets() {
     
     
-    //unsigned long j = 0;
+    unsigned long j = 0;
     unsigned long k = 0;
     
     for(int i = 0; i < numBuckets; i++){
-        for (long j = 0; j < globalBuckets->getBucket(i).size(); j++, k++){
+        for( ; j < globalBuckets->getBucket(i).size(); j++, k++){
             list[k] = globalBuckets->getBucket(i)[j];
         }
     }
@@ -200,18 +199,16 @@ void bucketSort(bool displayOutput, bool multiThreadingMode) {
     // Note that the above variable numThreadsToUse will have the exact number of threads
     // you should use.
     // Also, join the threads.
-    //thread tracking object
     thread* threads = new thread[numThreadsToUse];
     
-    //fork to create threads
-    for (unsigned int i = 0; i < numThreadsToUse; i++){
+    for(int i = 0; i < numBuckets; i++){
         threads[i] = thread(sortEachBucket, currentWorkUnit);
     }
     
-    //join threads
-    for (unsigned int i = 0; i < numThreadsToUse; i++){
+    for(int i = 0; i < numBuckets; i++){
         threads[i].join();
     }
+    
     delete[] threads;
     
     //sortEachBucket(numBuckets);
@@ -225,8 +222,6 @@ void bucketSort(bool displayOutput, bool multiThreadingMode) {
         printf("Displaying what is hopefully a sorted array: \n");
         printList(); //See if it's all sorted.
     }
-    
-    
 }
 
 //***Functions that help our bucket sort work.***
@@ -385,7 +380,7 @@ int main() {
     baselineTime = diff.count();
     verifySort(list, listSize, diff, "4000000 items in 1 bucket with 1 thread - BASELINE");
     
-    bool multiThreadingMode{ true };
+    bool multiThreadingMode{ false };
     int loopTo = 0;
     if (useMultiThreading) {
         loopTo = 1;
